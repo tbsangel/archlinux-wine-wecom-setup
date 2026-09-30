@@ -1,0 +1,16 @@
+# Installer, vendor DLLs, fonts, Wine prefixes and user data stay local.
+/assets/
+/wecom-wine-diagnostics/
+*.log
+*.dmp
+*.bak
+*.obj
+*.pdb
+__pycache__/
+*.pyc
+.DS_Store
+
+# The two small, source-included diagnostic helpers are intentional.
+*.exe
+!/scripts/status-font-probe.exe
+!/scripts/titlebar-managed.exe
