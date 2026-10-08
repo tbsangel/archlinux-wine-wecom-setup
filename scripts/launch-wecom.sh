@@ -10,9 +10,21 @@ cd -- "$(dirname -- "$app")"
 wine_env=(env -u LC_ALL -u WINEARCH -u WINESERVER -u WINELOADER -u WINEDLLPATH
   LANG=zh_CN.UTF-8 LC_CTYPE=zh_CN.UTF-8 LC_MESSAGES=zh_CN.UTF-8
   WINEPREFIX="$WECOM_PREFIX" WINEDLLOVERRIDES="$overrides" WINEDEBUG=-all)
+if command -v python3 >/dev/null && [[ -f "$script_dir/prepare-startup.py" ]]; then
+  python3 "$script_dir/prepare-startup.py" --prefix "$WECOM_PREFIX" \
+    >>"$WECOM_PREFIX/wecom-startup.log" 2>&1
+fi
+if [[ "${WECOM_TRAY_ICON_FIX:-1}" != 0 ]] && command -v python3 >/dev/null && [[ -f "$script_dir/tray-icon.py" ]]; then
+  python3 "$script_dir/tray-icon.py" --prefix "$WECOM_PREFIX" \
+    </dev/null >>"$WECOM_PREFIX/wecom-tray-icon.log" 2>&1 &
+fi
 if [[ "${WECOM_TITLEBAR_FIX:-1}" != 0 ]]; then
   test -f "$script_dir/titlebar-managed.exe"
-  "${wine_env[@]}" /usr/bin/wine "$script_dir/titlebar-managed.exe" -watch \
+  tray_geometry=""
+  if command -v python3 >/dev/null && [[ -f "$script_dir/tray-geometry.py" ]]; then
+    tray_geometry="$(python3 "$script_dir/tray-geometry.py" 2>>"$WECOM_PREFIX/wecom-titlebar.log")"
+  fi
+  "${wine_env[@]}" WECOM_TRAY_GEOMETRY="$tray_geometry" /usr/bin/wine "$script_dir/titlebar-managed.exe" -watch \
     </dev/null >>"$WECOM_PREFIX/wecom-titlebar.log" 2>&1 &
 fi
 exec "${wine_env[@]}" /usr/bin/wine "$app"

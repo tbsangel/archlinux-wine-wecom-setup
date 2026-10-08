@@ -1,22 +1,29 @@
 # 从零安装原生 Wine 企业微信
 
-目标组合：Wine 11.18、企业微信 5.0.11.6018、原始 x64 Web 组件 5.0.79.5483。先备齐材料，再初始化一个空 prefix。以下示例使用新路径 `WeCom-rebuild`，避免覆盖当前已经可用的两个环境。
+目标为企业微信 5.0.11.6018 和原始 x64 Web 组件 5.0.79.5483。首次安装使用 Wine 11.18，后续启动与窗口修复在 Wine 11.19 下验证；这些是实测版本，不表示任意更新版本均兼容。详见[当前环境](README.md#当前环境)及[验证范围](verification-and-recovery.md#验证范围)。
+
+本页用于**空 prefix 的安装**。已有环境只需更新辅助脚本时，使用[维护步骤](verification-and-recovery.md#更新启动辅助文件)，不要重新执行字体注册、DLL 替换或 prefix 初始化。以下新装示例使用独立的 `WeCom-rebuild` 路径，避免覆盖当前安装。
+
+新装失败且尚未登录、没有用户数据时，可换一个空 prefix 重新安装。本页保存的原始组件和注册表备份供安装成功后的维护使用；已投入使用的环境需要撤销配置时，按[单项回退](verification-and-recovery.md#单项回退)处理。
 
 先在仓库根目录打开 Bash。所有命令在普通用户的 **同一个 Bash 终端** 中分节执行；每节成功后再继续。不要使用 `sudo wine`。材料路径可修改，修改后重新运行材料校验。
 
 ## 1. 准备材料
 
-本机已有系统 `/usr/bin/wine` 和 `/usr/bin/wineserver`，实测 `wine --version` 为 `wine-11.18`；另需 Python 3、Bash、已生成的 `zh_CN.UTF-8` locale。若在其他机器安装 Wine，先使用该发行版支持的安装方式准备能运行 32/64 位程序的 Wine，再核对版本。这里没有把滚动更新的软件包命令等同于固定的 11.18 安装方式。
+准备系统 `/usr/bin/wine` 和 `/usr/bin/wineserver`，确认能运行 32/64 位程序；另需 Python 3、Bash、已生成的 `zh_CN.UTF-8` locale。示例中的 locale 检查使用 `rg`。滚动更新的软件包安装结果不等同于固定 Wine 版本，执行前应记录 `wine --version`。
 
-| 材料 | 本机已验证来源 | 需要留存的内容 |
+KDE Wayland 下的托盘菜单与悬浮提示坐标修正另需 `kscreen-doctor`、`libX11` 和 `libXrandr`；托盘黑块修正另用 `libXdamage`。缺少相关依赖或不在 KDE Wayland 环境时，跳过对应修复。
+
+复用本机材料时，表中的 `drive_c/` 路径均相对于当前原生 Wine prefix `~/Works/Softwares/wine/WeCom`。这些文件已按仓库清单核对，可复制到 `assets/` 留存。
+
+| 材料 | 本机已验证位置 | 需要留存的内容 |
 |---|---|---|
 | 安装程序 | `/home/<user>/Works/Download/WeCom_5.0.11.6018.exe` | 完整 EXE；SHA256 见 `materials/versions.json` |
-| x64 CEF | 旧 prefix 的 `drive_c/users/<user>/AppData/Roaming/Tencent/WXWork/cef/5.0.79.5483/cef/` | 完整目录，89 个清单文件，不只 `libcef.dll` |
-| x86 RichEdit | 旧 prefix 的 `drive_c/windows/syswow64/riched20.dll` | Microsoft 5.30.23.1200；SHA256 必须匹配 |
-| 27 个西文字体 | 旧 prefix 的 `drive_c/windows/Fonts/` | 具体文件名和校验值见 `materials/fonts.json` |
-| 4 个中文字体 | 宿主 `/usr/share/fonts/adobe-source-han-sans/`、`adobe-source-han-serif/` | 思源黑体/宋体 CN 常规及粗体 OTF |
+| x64 CEF | `drive_c/Program Files (x86)/WXWork/5.0.11.6018/compatible_web/` | 完整目录，89 个清单文件，不只 `libcef.dll` |
+| x86 RichEdit | `drive_c/windows/syswow64/riched20.dll` | Microsoft 5.30.23.1200；SHA256 必须匹配 |
+| 31 个字体 | `drive_c/windows/Fonts/` | 27 个西文 TTF 和 4 个思源 CN OTF；文件名和校验值见 `materials/fonts.json` |
 
-CEF 是企业微信自行下载的腾讯组件，RichEdit 是本机旧环境已有的微软组件。这里没有提供重新从网络取得同一版本 RichEdit/CEF 的已验证下载流程。全新机器上如果没有这些材料，需要先取得并核对材料；不能把“装好 Wine 后运行安装包”视作已经能复现本配置。材料复制完成后，新 prefix 运行不依赖旧 prefix。
+CEF 是企业微信自行下载的腾讯组件，RichEdit 是额外准备的微软组件。仓库不包含安装程序、组件或字体，也未提供从网络取得同一版本 RichEdit/CEF 的已验证下载流程。全新机器需要先备齐并核对材料；仅运行企业微信安装包不能复现本配置。安装完成后，运行只依赖目标 prefix 内的文件。
 
 将已取得的材料整理为以下结构，或在下方变量中填写自己的材料路径。`assets/` 已被 Git 忽略，不会随正常提交上传：
 
@@ -74,7 +81,7 @@ mkdir -- "$WECOM_BACKUP"
 wecom_winpath() { /usr/bin/winepath -w "$1"; }
 ```
 
-`winemenubuilder.exe=d` 用来避免安装时自动生成混淆新旧环境的桌面菜单，不是 CEF 修复。
+`winemenubuilder.exe=d` 禁用 Wine 自动生成桌面菜单，使用第 9 节的专用启动入口以加载完整配置。
 
 让 Windows 安装器的 Desktop 留在新 prefix 内，单独创建 Linux 启动入口：
 
@@ -89,7 +96,7 @@ if desktop.is_symlink():
 PY
 ```
 
-Windows Documents 默认可能映射到宿主用户的 Documents；本次未复制旧聊天账号数据，也没有要求修改该映射。
+Windows Documents 默认可能映射到宿主 Documents；此流程不迁移旧聊天账号数据。
 
 ## 3. 安装指定企业微信版本
 
@@ -105,7 +112,7 @@ test -d "$WECOM_VERSION_DIR/compatible_web"
 /usr/bin/wineserver -w
 ```
 
-此时先不要把能打开主界面当作安装完成。默认 Web 组件、Qt 嵌入和字体还没有处理。
+继续配置 Web 组件、Qt 嵌入和字体，再进行功能验收。
 
 ## 4. 更换整套 64 位 Web 组件
 
@@ -175,7 +182,7 @@ PY
 
 在此全新 prefix 中，`Fonts/Replacements` 原本不存在。对已有环境应用时要先查询并备份它，不能假定为空。
 
-字体分工见 [配置说明](configuration-rationale.md#字体不是只有一层配置)：字体文件、GDI `FontSubstitutes`、`FontLink` 和 Wine `Fonts/Replacements` 各有用途。Tahoma 等默认 FontLink 可能因区域设置变化被重写，不能仅凭导入成功就认定悬浮提示修复。
+字体分工见 [配置说明](configuration-rationale.md#字体与输入)：字体文件、GDI `FontSubstitutes`、`FontLink` 和 Wine `Fonts/Replacements` 各有用途。Tahoma 等默认 FontLink 可能因区域设置变化被重写，不能仅凭导入成功就认定悬浮提示修复。
 
 ## 7. 配置 32 位微软 RichEdit
 
@@ -190,7 +197,7 @@ cp -p -- "$WECOM_RICHEDIT_SRC" "$WECOM_PREFIX/drive_c/windows/syswow64/riched20.
 mv -- "$WECOM_PREFIX/drive_c/windows/syswow64/riched20.native-staged.dll" "$WECOM_PREFIX/drive_c/windows/syswow64/riched20.dll"
 ```
 
-已加载的覆盖列表含 `riched20=n,b`。注意 `syswow64` 放的是 x86 DLL，`system32` 放的是 x64 DLL；此次不改 x64 RichEdit，不复制旧环境全部系统 DLL。
+已加载的覆盖列表含 `riched20=n,b`。注意 `syswow64` 放的是 x86 DLL，`system32` 放的是 x64 DLL；此步骤只替换经过校验的 x86 RichEdit。
 
 ## 8. 设置系统提示字体
 
@@ -205,12 +212,14 @@ mv -- "$WECOM_PREFIX/drive_c/windows/syswow64/riched20.native-staged.dll" "$WECO
 
 ## 9. 启动与独立桌面入口
 
-复制启动配套文件到 prefix，使日常启动不依赖文档目录。标题栏维护工具会将独立顶部横条纳入正常窗口管理，修复其他窗口激活时横条仍盖在最前的问题，原因见 [标题栏修复](titlebar-layer-fix.md)。
+将下面七个配套文件复制到 prefix，日常启动便不依赖仓库目录。启动器检查失效共享锁，启动托盘图标和窗口辅助程序，再运行企业微信。各文件职责见[辅助文件清单](verification-and-recovery.md#辅助文件维护)。
 
 ```bash
 test ! -e "$WECOM_PREFIX/wecom-compat"
 mkdir -p -- "$WECOM_PREFIX/wecom-compat/scripts" "$WECOM_PREFIX/wecom-compat/configs"
-cp -- "$WECOM_SETUP/scripts/launch-wecom.sh" "$WECOM_SETUP/scripts/titlebar-managed.exe" \
+cp -- "$WECOM_SETUP/scripts/launch-wecom.sh" "$WECOM_SETUP/scripts/prepare-startup.py" \
+  "$WECOM_SETUP/scripts/tray-geometry.py" "$WECOM_SETUP/scripts/tray-icon.py" \
+  "$WECOM_SETUP/scripts/titlebar-managed.exe" \
   "$WECOM_SETUP/scripts/titlebar-managed.c" "$WECOM_PREFIX/wecom-compat/scripts/"
 cp -- "$WECOM_SETUP/configs/dll-overrides.txt" "$WECOM_PREFIX/wecom-compat/configs/"
 /usr/bin/wineserver -k
@@ -233,6 +242,6 @@ StartupNotify=true
 StartupWMClass=wxwork.exe
 ```
 
-这个示例入口依赖 prefix 内 `wecom-compat/` 的文件；移动 prefix 后更新 `Exec`。当前已经存在的测试桌面入口也已采用同样布局。
+这个示例入口依赖 prefix 内 `wecom-compat/` 的文件；移动 prefix 后更新 `Exec`。原生 Wine 环境的 `WeCom-Native-Wine.desktop` 也使用这一布局。
 
-最后执行 [验收清单](verification-and-recovery.md#验收清单)，包括文档列表、文档正文、编辑框、悬浮提示，以及标题栏遮挡/拖动/最小化行为。
+最后执行[验收清单](verification-and-recovery.md#验收清单)，覆盖页面、中文输入与提示、标题栏遮挡和激活、边缘缩放以及各屏幕托盘菜单和悬浮提示位置。材料校验通过不能代替实际功能验收。

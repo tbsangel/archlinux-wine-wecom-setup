@@ -1,102 +1,89 @@
-# 为什么需要这些配置
+# 配置说明
 
-本页区分本次实际观察和实现解释。验收依据是原生 Wine 11.18 + 企业微信 5.0.11.6018，不将单个修复推广成所有版本的必要条件。
+本页说明已验证版本组合的兼容措施。操作命令见[从零安装](install-from-scratch.md)，故障处理及回退见[使用与维护](verification-and-recovery.md)。
 
-## 文档页面有两层故障
+## 运行环境
 
-首先，安装包自带的 x86 CEF/Chromium 107 在 V8 初始化中崩溃。其次，即使 CEF renderer 已能存活，文档列表的 Qt 容器仍不能嵌入主窗口。必须分别处理内核崩溃和窗口嵌入。
+使用独立 `win64` prefix，使 x86 主程序与 x64 Web 子进程共存。[启动器](scripts/launch-wecom.sh)固定 `/usr/bin/wine`、中文区域设置和 DLL 加载顺序，避免不同入口产生不同配置。
 
-| 对照组合 | 实际结果 |
+`LANG/LC_CTYPE/LC_MESSAGES=zh_CN.UTF-8` 并清除 `LC_ALL`，用于统一界面语言和字体初始化。`winemenubuilder.exe=d` 禁用 Wine 自动生成桌面菜单，统一通过专用启动入口加载配置。
+
+## 文档页面
+
+页面问题有两层：CEF renderer 崩溃，以及 WeMail 的 Qt 子窗口无法嵌入。仅让 renderer 存活不能恢复文档列表。
+
+| 配置 | 原因与实际结果 |
 |---|---|
-| 原始 x86 CEF | V8 检查失败、renderer 崩溃 |
-| 配套 x86 CEF 加兼容补丁 | renderer 存活，文档列表仍空白 |
-| 原始 x64 CEF | renderer 存活，工作台能打开，文档列表仍空白 |
-| 原始 x64 CEF + 微软 VC/UCRT | 文档列表仍空白 |
-| 上述组合 + Qt `dpiawareness=1` | 列表恢复，用户确认文档正文正常 |
+| 整套 x64 CEF 5.0.79.5483 / Chromium 129.0.6668.101 | 安装包的 x86 CEF 在 V8 初始化时只接受旧页面属性 `PAGE_READWRITE (0x4)`，Wine 返回 `PAGE_WRITECOPY (0x8)` 后触发检查失败。换为原始 x64 组件后 renderer 正常，工作台能打开 |
+| 配套微软 VC/UCRT 优先 | Wine 内置 MSVCP140 缺少观察到的 8 个导入，企业微信自带库有对应导出；配置后错误消失，但文档列表仍空白 |
+| WeMail 的 `dpiawareness=1` | 主窗口是 System（1），Qt 窗口是 Per-Monitor（2），虽然 DPI 数值均为 96，感知模式不同仍导致嵌入失败、容器为 0×0；统一模式后列表和正文恢复 |
 
-### 完整 x64 CEF：解决 renderer 崩溃
+CEF 来自企业微信自行下载的腾讯组件，89 个文件与[厂商清单](materials/cef64-vendor-manifest.json)一致。必须成套替换 `compatible_web` 内的程序、DLL、资源和 locales；主程序仍为 x86，这套 x64 DLL 无需二进制补丁。企业微信自动选择旧组件的原因尚未确定，升级也可能覆盖替换结果。
 
-原 x86 `libcef.dll` 在 `VirtualProtect` 成功后只接受旧页面属性 `PAGE_READWRITE (0x4)`，而 Wine 返回 `PAGE_WRITECOPY (0x8)`，触发 V8 检查。本次转储在 `libcef + 0x16a59ac` 处一致。
+[dll-overrides.txt](configs/dll-overrides.txt) 保存完整覆盖列表；`n,b` 表示优先原生实现、保留 Wine 内置回退，前提是配套 DLL 确实存在。[qt.conf](configs/qt.conf) 只放在版本目录的 `wemail/`，修改该组件的 DPI 感知模式即可，无需调整全局显示缩放。
 
-最终采用企业微信自行下载的原始 x64 Web 组件 `5.0.79.5483`，Chromium `129.0.6668.101`。清单允许企业微信最低版本 `5.0.8.8000`，本次版本符合；89 个文件与已保存的腾讯清单一致，未打二进制补丁。
+## 字体与输入
 
-这不是从系统 Chrome 拿一个 DLL，也不是把任意 CEF 包塞进安装目录。`WXWorkWeb.exe`、CEF、资源和配套库必须成套匹配。x86 主程序可以启动独立的 x64 Web 子进程，所以主程序不必换成 64 位，但 prefix 必须支持 64 位。
+| 层次 | 配置及作用 |
+|---|---|
+| 字体文件 | [清单](materials/fonts.json)中的 4 个思源 CN OTF 和 27 个西文 TTF，复制到 prefix 并注册 |
+| GDI | `FontSubstitutes` 映射中文字体名称；`FontLink\SystemLink` 为西文字体补充中文字形 |
+| DirectWrite | Wine `Fonts/Replacements` 映射应用请求的字体族；仅配置 GDI 时，水印等位置仍可能缺字 |
+| 编辑框 | x86 微软 `riched20.dll` 配合 `riched20=n,b`；字体探针通过后，替换控件才修复编辑中的中文方框 |
+| 悬浮提示 | 将 `WindowMetrics\StatusFont` 设为 `Source Han Sans CN`；提示控件使用独立系统字体，主界面换字体不一定生效 |
 
-企业微信为何自动选择旧组件尚未确定；不能声称已修复其自动选择逻辑。版本更新可能覆盖 `compatible_web`。
+字体注册和映射分别由 [fonts-install.reg](configs/fonts-install.reg)、[fonts-replacements.reg](configs/fonts-replacements.reg) 提供。它们使用思源字体替代所请求的中文字体族，不等于安装了微软原版微软雅黑、宋体。31 个文件是已验证集合，尚未做逐个移除试验。
 
-证据：[验证摘要](evidence/verification-summary.json)、[CEF 清单](materials/cef64-vendor-manifest.json)。
+RichEdit 的版本与 SHA256 见 [versions.json](materials/versions.json)。只替换 `windows/syswow64/riched20.dll`，该目录存放 x86 DLL；`system32` 的 x64 文件保持原状。此次没有改动宿主输入法，也未定位 Wine RichEdit 内部的具体缺陷。
 
-### 微软 VC/UCRT：补齐已观察到的缺失导入
+提示字体原为 Tahoma，部分中文回退失败，且 FontLink 可能随区域设置变化被重写。[status-font-probe](scripts/status-font-probe.c) 通过 Windows API 设置 StatusFont 的字体名，保留原字号与字重；不用手写 LOGFONT 二进制值。完整重启企业微信后再检查“截图”“查找聊天记录”等提示。
 
-加载日志发现 Wine 内置 `MSVCP140.dll` 有 8 个缺失导入；企业微信配套库包含相应导出。配置 `WINEDLLOVERRIDES` 为原生优先后，这些错误消失。
+## 启动等待
 
-完整覆盖列表保存在 [dll-overrides.txt](configs/dll-overrides.txt)，包括 MSVCP140 系列、ConCRT、VCRuntime 和 UCRT。`n,b` 保留内置回退；这只是设置加载优先级，前提是相应微软 DLL 确实存在。该项单独测试没有恢复文档列表，保留它是基于依赖修复证据，并非把它当成列表空白的唯一原因。
+已观察到的五分钟等待来自 `drive_c/ProgramData/boost_interprocess/01000000/WXWORK-TBS-HELPER-LOCK`：文件长 12 字节，初始化状态为 0，网页组件共享内存初始化等待 **300003 ms**。移走失效锁后，该次主界面约 **4.4 秒**显示，用户确认聊天和文档正常。最初导致锁失效的原因尚未确定。
 
-### Qt DPI：恢复文档列表的子窗口嵌入
+[prepare-startup.py](scripts/prepare-startup.py) 在启动前只处理同名、12 字节、状态 0 或 1 的普通文件。确认目标 prefix 无 Wine 进程后才移动到 `setup-backups/startup-lock-*`；活动状态不明、正常状态 2 或符号链接均不处理。脚本不清理聊天数据，也不自动删除 `CUR_LOGIN_UIN_KEY`；只移走后者的尝试没有解决等待。
 
-主窗口 DPI awareness 为 System（1），WeMail 的 Qt 窗口为 Per-Monitor（2）；两边 DPI 数值都是 96，但感知模式不同。窗口跟踪显示 Qt 窗口留在隐藏父窗口中，企业微信文档容器尺寸为 0×0。
+## 标题栏与边缘缩放
 
-[Wine 的窗口实现](https://github.com/wine-mirror/wine/blob/master/server/window.c)对不兼容的 DPI 感知模式执行挂载限制；[Qt 5.15 文档](https://doc.qt.io/archives/qt-5.15/highdpi.html)提供 `dpiawareness` 平台参数。仅设置 `wemail/qt.conf` 后，两边模式一致，Qt 子窗口进入主容器，列表恢复。
+企业微信的标题栏和分层阴影是独立窗口。[titlebar-managed](scripts/titlebar-managed.c) 只匹配主进程及对应的窗口所属关系：
 
-此修复改变的是 WeMail 组件的 DPI 感知模式，不是显示器缩放或 DPI 数值。将来换版本目录，要检查新目录的 `wemail/qt.conf`。
-
-证据：[验证摘要](evidence/verification-summary.json)。
-
-## 字体不是只有一层配置
-
-| 层次 | 配置 | 实际作用与验证范围 |
+| 窗口 | 调整 | 解决的问题 |
 |---|---|---|
-| 字体文件 | 4 个思源 CN OTF + 27 个西文 TTF，复制到 prefix 并注册 | 字体本体可用；不是仅在 Linux 字体列表中出现 |
-| GDI 名称替代 | `HKLM\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes` | 微软雅黑、黑体等名称映射到思源黑体；宋体映射到思源宋体 |
-| GDI 字形回退 | 同一分支下 `FontLink\SystemLink` | 西文字体缺中文时，链接到安装的中文字体文件 |
-| Wine 字体族映射 | `HKCU\Software\Wine\Fonts\Replacements` | 让 DirectWrite 也能找到应用请求的替代字体族 |
-| 编辑控件 | x86 微软 RichEdit | 字体映射已通过后，编辑框仍异常，需要单独处理控件实现 |
-| 系统提示字体 | `HKCU\Control Panel\Desktop\WindowMetrics\StatusFont` | 标准 tooltip 使用此字体；不完全跟随主界面的字体选择 |
+| `TitleBarWindow` | 增加 `WS_SYSMENU` | 让标题栏纳入桌面窗口管理，随整窗退到其他应用之后 |
+| 同上 | 清除 `WS_EX_NOACTIVATE` | 点击标题栏可以将整窗置前 |
+| 主窗口所属的分层 `PerryShadowWnd` | 增加 `WS_EX_TRANSPARENT` | 阴影不再拦截鼠标，边缘拖动交给主窗口 |
 
-首次 GDI 检查中，中文字体名称回退到 Arial，12 个样本全部缺字。增加 `FontSubstitutes` 后，GDI 样本通过；但 DirectWrite 字体集合仍找不到被请求的中文族名。
+原标题栏并未设置 TOPMOST；问题是它未受桌面窗口管理。最终标题栏扩展样式为 `0x00080080`。边缘缩放已从当时的最小尺寸 `986×650` 放大至 `1379×933`，达到最小尺寸时继续向内拖动无效。
 
-[Wine DirectWrite 的字体实现](https://github.com/wine-mirror/wine/blob/master/dlls/dwrite/font.c)读取 `Fonts/Replacements` 添加字体族替代。补齐该键后，32/64 位 DirectWrite 探针中的 7 个中文别名及常规/粗体样本均通过，中文水印恢复。
+辅助程序每秒检查样式，不周期性抢焦点或强制改变窗口尺寸。同一 prefix 仅运行一个 watcher，随主进程退出；开关和更新方法见[日常启动](verification-and-recovery.md#日常启动与开关)。
 
-字体安装配置是 [fonts-install.reg](configs/fonts-install.reg)，字体族配置是 [fonts-replacements.reg](configs/fonts-replacements.reg)。后者额外覆盖 `Arial Unicode MS`、`DengXian`、`等线`。这些是思源替代映射，不等于安装了微软原版微软雅黑、宋体。
+## 多屏托盘菜单与悬浮提示
 
-31 个文件是这次沿用的可用集合；没有证据说明每个西文字体都是启动所必需的。更换字体时，需要核对内部字体族名称，不能只把文件改名成 `simsun.ttc`。
+KDE Wayland 的托盘点击坐标与 Wine/XWayland 使用的坐标原点、缩放不同。仅补固定横向偏移只能修复其中一块屏幕，因此采用逐屏换算。
 
-## RichEdit：为什么不是继续添加字体
+[tray-geometry.py](scripts/tray-geometry.py) 在启动时读取 KScreen 和 XRandR，按输出名称匹配每块屏幕，生成平移与缩放映射。窗口辅助程序处理两类弹窗：企业微信主进程所属、由托盘触发的 `DuiMenuWnd` 菜单，以及 Wine Explorer 创建、属于当前唯一托盘图标的 `tooltips_class32` 悬浮提示。此前仅监听企业微信进程，遗漏了后者。
 
-字体和字体族探针均通过后，输入框仍显示方框。旧环境使用微软 x86 `riched20.dll`，新环境使用 Wine 内置实现。复制同一份微软 DLL 并设置 `riched20=n,b` 后，加载跟踪确认使用 native 版本，用户确认输入框正常。
+两类弹窗共用逐屏映射，核对托盘位置与布局后将窗口限制在目标工作区内。悬浮提示额外检查窗口归属及进程一致性，排除气泡通知；等待定位期间托盘位置改变则跳过。移动保持窗口大小和焦点，不改变应用内部提示的位置。
 
-这给出了有效的兼容措施，但没有进一步定位 Wine RichEdit 内部的具体缺陷。不能将所有输入法问题都归因于此 DLL。本次没有更换 Fcitx 或系统输入法设置。
+缺少依赖、输出无法匹配、来源坐标落入多个屏幕或运行时几何检查不符时，跳过修正。双屏 135% / 100% 的菜单及悬浮提示已确认正常；其他排列与旋转未覆盖。改变屏幕排列或缩放后，正常退出企业微信再启动以重新计算。
 
-文件版本为 `5.30.23.1200`，SHA256：
+## 托盘菜单关闭
 
-```text
-1c2508fb55ddc459d0327f2017471545c87420443391567094e768fb34032da1
-```
+实测托盘右键菜单显示后，前台仍可能停留在 Wine 托盘；即使临时激活菜单，再点击外部让它失焦，菜单仍不消失。正常 `WM_CLOSE` 消息可以让企业微信同时清理菜单及阴影窗口，因此仅修正坐标或焦点不足以恢复关闭行为。
 
-只放进新 prefix 的 `windows/syswow64/riched20.dll`。不要用这份 x86 DLL 覆盖 `system32` 的 x64 文件。
+窗口辅助程序只跟踪已确认由托盘打开的企业微信 `DuiMenuWnd`。检测到菜单范围外的鼠标按下，或前台切换到托盘/菜单之外时，重新核对进程和所属关系，再向该菜单发送 `WM_CLOSE`。菜单及子菜单内部的点击保留原行为，鼠标事件继续传递。此处理由 `WECOM_TITLEBAR_FIX` 控制，独立于 `WECOM_TRAY_FIX` 的坐标修正。
 
-证据：[验证摘要](evidence/verification-summary.json)。
+Wine 在焦点切到桌面时还可能将前台窗口清空，却不发出前台切换事件。为覆盖实测的遗漏，辅助程序仅在托盘菜单打开期间每 50 ms 检查前台状态；离开托盘/菜单组持续 100 ms 后关闭，菜单结束后恢复原等待间隔。
 
-## StatusFont：为什么其他中文正常，悬浮提示仍缺字
+## 托盘消息提醒
 
-[Wine 标准 tooltip 实现](https://github.com/wine-mirror/wine/blob/master/dlls/comctl32/tooltips.c)通过 `SPI_GETNONCLIENTMETRICS` 的 `lfStatusFont` 创建提示字体。本次读取为 Tahoma；它本身没有中文样本字形，依赖回退。实际提示中，“表情”可以显示，“截图”的“图”及“查找聊天记录”的部分字却仍显示方框。
+捕获到 20×20 图标中的闪烁空白帧实际变成了居中的 16×16 不透明黑块，Wine 原始图像和 KDE 收到的像素一致。[tray-icon.py](scripts/tray-icon.py) 用 XDamage 监听重绘，只匹配这一已观察到的像素形状，将其改为空白占位；正常图标不变，消息提醒继续闪烁。
 
-重写 Tahoma 和 Microsoft Sans Serif 的 FontLink 没有得到稳定结果，启动及区域设置变化后又出现指向缺失 Windows 字体文件的默认项。最后将 `StatusFont` 直接设为已经安装的思源黑体 CN，使提示不再依赖该西文字体的中文回退。重启企业微信后，“截图”“图片”“文档”“文件”“查找聊天记录”抓图均正常，用户确认修复。
+占位区保留 1/255 的透明度：视觉上为空白，同时避免 KDE 丢弃全透明更新，也保留托盘位置和原点击区域。程序通过 X11 进程信息确认当前 prefix，要求其中存在企业微信且仅有一个匹配的嵌入式 Wine 图标；尺寸、像素或归属不符时不修改。用户已确认空白占位效果。
 
-字号、字重沿用原值，提示框因字体行高从 19 像素变成 22 像素。设置工具只改变取回的非客户区参数中的 StatusFont 字体选择，不改其他字体选择；保存操作由 Windows API 完成。不能只看设置 API 返回成功，必须重启后检查实际提示。
+## 托盘点击激活
 
-证据：[验证摘要](evidence/verification-summary.json)。
+托盘属于 Wine Explorer。左键点击虽然恢复了企业微信，但前台窗口可能仍是 `__wine_tray_icon`；实测直接 `SetForegroundWindow` 返回失败，临时连接前台输入队列后调用成功。只修改 X11 的 `WM_TAKE_FOCUS` 协议没有解决，已恢复原属性。
 
-## 从零安装不必重做的历史操作
-
-- **旧 Deepin Wine 的 IntxLNK 占位 DLL 替换**：只在旧 prefix 观察到，新的原生 Wine prefix 未复现。不要复制整套 Deepin 系统 DLL。
-- **x86 CEF V8 二进制补丁**：曾有效，但最终已用原始 x64 组件；重装基线不使用该补丁。
-- **Deepin PE 影子缓存处理**：属于旧环境补丁生效问题，不能套到此次原生 Wine 重装流程。
-- **反复删除 Web/用户缓存**：没有证据表明这是新环境文档列表故障的必要修复。
-- **更改桌面缩放、输入法或关闭全部 Wine 进程**：本次不需要。所有停止/重启均限定在目标 prefix。
-
-## 独立标题栏的层级修复
-
-用户另行反馈：其他窗口激活时，企业微信顶部横条仍显示在最前。检查确认它是单独的 `TitleBarWindow`，未设置 TOPMOST，但 Wine 未将其纳入正常窗口管理。仅增加使该 popup 受管的样式后，窗口管理器接管了标题栏，用户确认遮挡、拖动、最小化/恢复正常。
-
-新环境的启动器现在配套一个只维护该主进程所属标题栏的辅助工具。它与 CEF、字体和 Qt DPI 修复无关，具体机制、验证范围和回退方法见 [标题栏层级修复](titlebar-layer-fix.md)。
+窗口辅助程序监听当前 prefix 内唯一托盘图标上的左键释放，稍后确认企业微信已可见、未最小化，且前台仍是该托盘窗口，再临时 `AttachThreadInput`、激活主窗口并立即分离。右键菜单、隐藏/最小化操作和用户已切换到其他窗口的情况不触发强制激活。
