@@ -10,7 +10,7 @@
 
 ## 1. 准备材料
 
-准备系统 `/usr/bin/wine` 和 `/usr/bin/wineserver`，确认能运行 32/64 位程序；另需 Python 3、Bash、已生成的 `zh_CN.UTF-8` locale。示例中的 locale 检查使用 `rg`。滚动更新的软件包安装结果不等同于固定 Wine 版本，执行前应记录 `wine --version`。
+准备系统 `/usr/bin/wine` 和 `/usr/bin/wineserver`，确认能运行 32/64 位程序；另需 Python 3、Bash、winetricks 及其下载/解包依赖、已生成的 `zh_CN.UTF-8` locale。示例中的 locale 检查使用 `rg`。滚动更新的软件包安装结果不等同于固定 Wine 版本，执行前应记录 `wine --version`。
 
 KDE Wayland 下的托盘菜单与悬浮提示坐标修正另需 `kscreen-doctor`、`libX11` 和 `libXrandr`；托盘黑块修正另用 `libXdamage`。缺少相关依赖或不在 KDE Wayland 环境时，跳过对应修复。
 
@@ -19,11 +19,11 @@ KDE Wayland 下的托盘菜单与悬浮提示坐标修正另需 `kscreen-doctor`
 | 材料 | 本机已验证位置 | 需要留存的内容 |
 |---|---|---|
 | 安装程序 | `/home/<user>/Works/Download/WeCom_5.0.11.6018.exe` | 完整 EXE；SHA256 见 `materials/versions.json` |
-| x64 CEF | `drive_c/Program Files (x86)/WXWork/5.0.11.6018/compatible_web/` | 完整目录，89 个清单文件，不只 `libcef.dll` |
-| x86 RichEdit | `drive_c/windows/syswow64/riched20.dll` | Microsoft 5.30.23.1200；SHA256 必须匹配 |
+| x64 CEF | [Release 示例素材](examples/README.md#下载-cef-示例素材)或 `drive_c/Program Files (x86)/WXWork/5.0.11.6018/compatible_web/` | 完整目录，89 个清单文件，不只 `libcef.dll` |
+| x86 RichEdit | 第 7 节通过 `winetricks riched30` 安装 | Microsoft 5.30.23.1200；不需要事先下载单独 DLL |
 | 31 个字体 | `drive_c/windows/Fonts/` | 27 个西文 TTF 和 4 个思源 CN OTF；文件名和校验值见 `materials/fonts.json` |
 
-CEF 是企业微信自行下载的腾讯组件，RichEdit 是额外准备的微软组件。仓库不包含安装程序、组件或字体，也未提供从网络取得同一版本 RichEdit/CEF 的已验证下载流程。全新机器需要先备齐并核对材料；仅运行企业微信安装包不能复现本配置。安装完成后，运行只依赖目标 prefix 内的文件。
+CEF 是企业微信自行下载的腾讯组件，已按清单收录到项目 Release。RichEdit 和字体不打包；`riched30` 已确认可提供相同 DLL，西文字体也可通过 winetricks 安装，但部分版本不同，详见[组件对照与字体说明](materials/winetricks.md)。本页第 6 节默认使用原 31 文件快照；选择 winetricks 字体路径时按该说明跳过手工复制，不要混用两套步骤。安装完成后，运行只依赖目标 prefix 内的文件。
 
 将已取得的材料整理为以下结构，或在下方变量中填写自己的材料路径。`assets/` 已被 Git 忽略，不会随正常提交上传：
 
@@ -31,7 +31,6 @@ CEF 是企业微信自行下载的腾讯组件，RichEdit 是额外准备的微�
 assets/
 ├── WeCom_5.0.11.6018.exe
 ├── cef/                    完整 x64 Web 组件目录
-├── riched20.dll             已核对的 x86 微软组件
 └── fonts/                  清单中的 31 个字体文件
 ```
 
@@ -45,20 +44,18 @@ export WECOM_SETUP="$PWD"
 export WECOM_PREFIX="$HOME/Works/Softwares/wine/WeCom-rebuild"
 export WECOM_INSTALLER="$WECOM_SETUP/assets/WeCom_5.0.11.6018.exe"
 export WECOM_CEF_SRC="$WECOM_SETUP/assets/cef"
-export WECOM_RICHEDIT_SRC="$WECOM_SETUP/assets/riched20.dll"
 export WECOM_FONTS_SRC="$WECOM_SETUP/assets/fonts"
 
 /usr/bin/wine --version
 locale -a | rg -i '^zh_CN\.(utf8|UTF-8)$'
 
-check_args=(--installer "$WECOM_INSTALLER" --cef-dir "$WECOM_CEF_SRC" --richedit "$WECOM_RICHEDIT_SRC")
-if [[ -n "$WECOM_FONTS_SRC" ]]; then
-  check_args+=(--fonts-dir "$WECOM_FONTS_SRC")
-fi
-python3 "$WECOM_SETUP/scripts/verify-materials.py" "${check_args[@]}"
+python3 "$WECOM_SETUP/scripts/verify-materials.py" --only installer --installer "$WECOM_INSTALLER"
+python3 "$WECOM_SETUP/scripts/verify-materials.py" --only cef --cef-dir "$WECOM_CEF_SRC"
+# 精确字体快照路径才执行；winetricks 字体路径按组件对照说明验收。
+python3 "$WECOM_SETUP/scripts/verify-materials.py" --only fonts --fonts-dir "$WECOM_FONTS_SRC"
 ```
 
-预期输出 `PASS`，覆盖安装程序、RichEdit 的 SHA256，89 个 CEF 文件的清单 MD5 和 x64 PE 架构，以及 31 个字体的 SHA256。清单 MD5 用于复核已知材料的一致性，不能替代来源核验。
+预期分别输出 `PASS`，覆盖安装程序 SHA256、89 个 CEF 文件的清单 MD5 和 x64 PE 架构，以及精确快照的 31 个字体 SHA256。RichEdit 在第 7 节安装后核对。清单 MD5 用于复核已知材料的一致性，不能替代来源核验。
 
 ## 2. 初始化独立 64 位 prefix
 
@@ -139,6 +136,8 @@ test ! -e "$WECOM_VERSION_DIR/wemail/qt.conf"
 cp -- "$WECOM_SETUP/configs/qt.conf" "$WECOM_VERSION_DIR/wemail/qt.conf"
 ```
 
+其他微软包的对应关系见 [winetricks 对照](materials/winetricks.md#微软-dll)。当前应用和 CEF 已自带 VC/UCRT；不需要因为配置了原生优先，就重复安装全部 vcrun。
+
 `qt.conf` 内容：
 
 ```ini
@@ -186,18 +185,25 @@ PY
 
 ## 7. 配置 32 位微软 RichEdit
 
-停止新 prefix 后再替换该 DLL，并保留原文件：
+停止新 prefix 并备份原文件，通过 winetricks 安装匹配的 RichEdit，再核对架构和 SHA256：
 
 ```bash
 /usr/bin/wineserver -k
 /usr/bin/wineserver -w
 test ! -e "$WECOM_BACKUP/riched20.dll"
 cp -p -- "$WECOM_PREFIX/drive_c/windows/syswow64/riched20.dll" "$WECOM_BACKUP/riched20.dll"
-cp -p -- "$WECOM_RICHEDIT_SRC" "$WECOM_PREFIX/drive_c/windows/syswow64/riched20.native-staged.dll"
-mv -- "$WECOM_PREFIX/drive_c/windows/syswow64/riched20.native-staged.dll" "$WECOM_PREFIX/drive_c/windows/syswow64/riched20.dll"
+if [[ -f "$WECOM_PREFIX/drive_c/windows/syswow64/msls31.dll" ]]; then
+  cp -p -- "$WECOM_PREFIX/drive_c/windows/syswow64/msls31.dll" "$WECOM_BACKUP/msls31.dll"
+else
+  touch "$WECOM_BACKUP/msls31.was-absent"
+fi
+env WINEPREFIX="$WECOM_PREFIX" WINE=/usr/bin/wine WINESERVER=/usr/bin/wineserver \
+  winetricks -q riched30
+python3 "$WECOM_SETUP/scripts/verify-materials.py" --only richedit \
+  --richedit "$WECOM_PREFIX/drive_c/windows/syswow64/riched20.dll"
 ```
 
-已加载的覆盖列表含 `riched20=n,b`。注意 `syswow64` 放的是 x86 DLL，`system32` 放的是 x64 DLL；此步骤只替换经过校验的 x86 RichEdit。
+已加载的覆盖列表含 `riched20=n,b`。注意 `syswow64` 放的是 x86 DLL，`system32` 放的是 x64 DLL。所核对 `riched30` 配方安装 x86 RichEdit 及配套 `msls31.dll`，不能按 DLL 文件名改用 `riched20` 包；来源比对见[说明](materials/winetricks.md#richedit-安装)。
 
 ## 8. 设置系统提示字体
 
@@ -212,7 +218,7 @@ mv -- "$WECOM_PREFIX/drive_c/windows/syswow64/riched20.native-staged.dll" "$WECO
 
 ## 9. 启动与独立桌面入口
 
-将下面七个配套文件复制到 prefix，日常启动便不依赖仓库目录。启动器检查失效共享锁，启动托盘图标和窗口辅助程序，再运行企业微信。各文件职责见[辅助文件清单](verification-and-recovery.md#辅助文件维护)。
+将下面配套文件复制到 prefix，日常启动便不依赖仓库目录。启动器检查失效共享锁，启动托盘图标和窗口辅助程序，再加载输入桥接并运行企业微信。各文件职责见[辅助文件清单](verification-and-recovery.md#辅助文件维护)。
 
 ```bash
 test ! -e "$WECOM_PREFIX/wecom-compat"
@@ -220,6 +226,7 @@ mkdir -p -- "$WECOM_PREFIX/wecom-compat/scripts" "$WECOM_PREFIX/wecom-compat/con
 cp -- "$WECOM_SETUP/scripts/launch-wecom.sh" "$WECOM_SETUP/scripts/prepare-startup.py" \
   "$WECOM_SETUP/scripts/tray-geometry.py" "$WECOM_SETUP/scripts/tray-icon.py" \
   "$WECOM_SETUP/scripts/titlebar-managed.exe" \
+  "$WECOM_SETUP/scripts/ime-bridge.c" "$WECOM_SETUP/scripts/ime-bridge.so" \
   "$WECOM_SETUP/scripts/titlebar-managed.c" "$WECOM_PREFIX/wecom-compat/scripts/"
 cp -- "$WECOM_SETUP/configs/dll-overrides.txt" "$WECOM_PREFIX/wecom-compat/configs/"
 /usr/bin/wineserver -k

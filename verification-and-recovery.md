@@ -19,6 +19,7 @@ bash "$WECOM_PREFIX/wecom-compat/scripts/launch-wecom.sh"
 | `WECOM_TITLEBAR_FIX` | 停用标题栏、边缘缩放、托盘坐标、菜单关闭和点击激活修复；保留启动前锁检查与图标修复 |
 | `WECOM_TRAY_FIX` | 只停用托盘菜单和悬浮提示的坐标修正 |
 | `WECOM_TRAY_ICON_FIX` | 只停用托盘黑块的空白占位修正 |
+| `WECOM_IME_FIX` | 停用邮件及内嵌页面的 XIM 提交桥接；恢复系统 Wine 的输入行为 |
 
 开关在启动时读取；先完整退出企业微信，再设置开关启动。例如：
 
@@ -48,12 +49,13 @@ cp -a -- "$WECOM_PREFIX/wecom-compat" "$compat_backup/"
 cp -- "$WECOM_SETUP/scripts/launch-wecom.sh" "$WECOM_SETUP/scripts/prepare-startup.py" \
   "$WECOM_SETUP/scripts/tray-geometry.py" "$WECOM_SETUP/scripts/tray-icon.py" \
   "$WECOM_SETUP/scripts/titlebar-managed.c" \
+  "$WECOM_SETUP/scripts/ime-bridge.c" "$WECOM_SETUP/scripts/ime-bridge.so" \
   "$WECOM_SETUP/scripts/titlebar-managed.exe" "$WECOM_PREFIX/wecom-compat/scripts/"
 cp -- "$WECOM_SETUP/configs/dll-overrides.txt" "$WECOM_PREFIX/wecom-compat/configs/"
 bash "$WECOM_PREFIX/wecom-compat/scripts/launch-wecom.sh"
 ```
 
-源码、EXE、脚本和覆盖列表配套更新；不要覆盖仍由 Wine 映射的 EXE。更新后按下面清单验收。恢复旧辅助版本时，停止目标 prefix，再从 `setup-backups/compat-update-*/wecom-compat/` 还原。
+源码、EXE、SO、脚本和覆盖列表配套更新；不要覆盖仍由进程映射的 EXE 或 SO。更新后按下面清单验收。恢复旧辅助版本时，停止目标 prefix，再从 `setup-backups/compat-update-*/wecom-compat/` 还原。
 
 ## 验证范围
 
@@ -63,7 +65,11 @@ bash "$WECOM_PREFIX/wecom-compat/scripts/launch-wecom.sh"
 
 标题栏间歇拖动失败在跟踪和最终回归中未再次出现，尚未定位独立原因。
 
-邮件、长期稳定性及整理后的完整从零安装未单独验收。最后一轮窗口交互修复通过重启辅助程序在运行中的应用上验证，尚未验证最终组合的完整应用重启或宿主重启；其他屏幕排列与旋转也未覆盖。
+2026-10-12，系统 Wine 11.19 的测试副本加载临时输入桥接后，用户确认邮件正文、标题和聊天中文输入正常。日志确认正文提交转交给当前 CEF 窗口；公共版 10.14 不加载桥接时仍失败。经用户确认，模块和启动器已同步至日常 prefix，原辅助文件保存在 `setup-backups/ime-fix-*`。已核对安装文件一致、系统 Wine 11.19 启动正常、主程序及 WeMail 加载模块且诊断日志关闭。
+
+日常入口的邮件输入确认正常后，继续定位到文档正文和审批的 CEF 子窗口由主程序承载。扩展输入宿主范围后，用户确认日常环境的邮件正文、文档正文和审批输入框三处均正常。扩展前的邮件修复版本保存在 `setup-backups/ime-mail-verified-*`。
+
+邮件收发、长文本及复杂组合输入、长期稳定性和整理后的完整从零安装未验收。测试副本和日常环境均已完整重启，但本次未重新验收窗口和托盘交互，宿主重启、其他屏幕排列与旋转也未覆盖。
 
 `materials/versions.json` 保留首次安装时的 Wine 11.18 及材料版本，不代表当前运行状态；后续启动和窗口修复使用 Wine 11.19。材料一致性、脚本静态检查和用户实际操作是不同层次的验证。
 
@@ -74,6 +80,8 @@ bash "$WECOM_PREFIX/wecom-compat/scripts/launch-wecom.sh"
 | 启动和登录 | 中文界面正常，登录后及时出现主界面 |
 | 文档 | 能看到列表，点击正文后可以加载并操作 |
 | 中文输入 | 编辑、删除中文和标点正常，无需发送测试消息 |
+| 邮件中文输入 | 标题、正文分别输入并选词，连续输入不丢字、不重复；再确认聊天输入正常，测试内容不要发送 |
+| 文档和审批中文输入 | 在草稿文档正文、审批说明框输入并选词，不丢字、不重复；不要提交审批或保存测试修改 |
 | 悬浮提示 | “截图”“图片”“文档”“文件”“查找聊天记录”无方框 |
 | 标题栏 | 单击能置前，切换其他应用时整体退后，拖动和最小化/恢复正常，无重复任务栏项 |
 | 边缘缩放 | 左右和底部向外拖动可放大，向内缩小遵守最小尺寸限制 |
@@ -110,6 +118,7 @@ python3 "$WECOM_SETUP/scripts/verify-materials.py" \
 | MSVCP140 缺失导入 | 配套 DLL 是否存在，启动器的覆盖列表和实际加载路径 |
 | 水印或正文方框 | [字体文件、GDI 与 DirectWrite 映射](configuration-rationale.md#字体与输入)；仅看 Linux `fc-match` 不够 |
 | 只有编辑框方框 | x86 RichEdit 校验及 native 加载情况 |
+| 邮件/文档/审批有候选框但选字后不出字 | `ime-bridge.so` 是否存在且由启动器加载、`WECOM_IME_FIX` 是否开启；不是依靠重装字体解决 |
 | 只有悬浮提示方框 | StatusFont 是否生效，设置后是否完整重启 |
 | 标题栏盖在最前或点击不激活 | [窗口辅助程序](configuration-rationale.md#标题栏与边缘缩放)是否运行、标题栏样式是否已调整 |
 | 边缘不能拖动 | 阴影鼠标穿透是否生效；先向外放大，当前布局最小尺寸为 `986×650` |
@@ -155,10 +164,11 @@ bash "$WECOM_PREFIX/wecom-compat/scripts/launch-wecom.sh"
 | CEF | 改名保存当前 `compatible_web`，将 `compatible_web.x86-original` 恢复原名；原 x86 白屏可能复现 |
 | Qt DPI | 保存并移走新增 `wemail/qt.conf` |
 | VC/UCRT | 备份后只移除对应 DLL 覆盖项，保留其他配置 |
-| RichEdit | 将 `setup-backups/riched20.dll` 放回 `windows/syswow64/`，移除 `riched20=n,b` |
+| RichEdit | 将 `setup-backups/riched20.dll` 放回 `windows/syswow64/`，移除启动器的 `riched20=n,b`；若用过 `winetricks riched30`，同时恢复其设置的 `HKCU\Software\Wine\DllOverrides\riched20`，还原备份的 `msls31.dll`（有 `msls31.was-absent` 标记时才移走新增文件） |
 | StatusFont | 从 `setup-backups/window-metrics.reg` 恢复原 `StatusFont` 二进制值，避免覆盖其他窗口参数 |
 | 字体映射 | 根据安装前导出值逐项还原；`.reg` 导入只合并，不会自动删除新增键值 |
 | 窗口/托盘修复 | 使用[启动开关](#日常启动与开关)停用，或还原更新前的整套辅助文件；图标占位可单独用 `WECOM_TRAY_ICON_FIX=0` 停用 |
+| 邮件/文档/审批输入桥接 | 设置 `WECOM_IME_FIX=0` 后完整重启，或停止后恢复配套辅助文件备份 |
 
 本机已有备份的命名可能与新装步骤不同，恢复前需核对备份内容与目标路径。
 
@@ -184,9 +194,19 @@ bash "$WECOM_PREFIX/wecom-compat/scripts/launch-wecom.sh"
 | `tray-icon.py` | 监听当前 prefix 托盘的重绘，将已识别的黑块帧改为空白占位 |
 | `titlebar-managed.c` / `.exe` | 常驻维护标题栏、阴影输入、托盘菜单/提示坐标、菜单关闭和左键激活 |
 | `status-font-probe.c` / `.exe` | 安装或诊断时读取/设置提示字体，不常驻 |
+| `ime-bridge.c` / `.so` | 转交 WeMail 或主程序所承载的跨进程 CEF 编辑器的 XIM 提交，随企业微信启动链加载 |
 | `verify-materials.py` | 只读校验安装包、组件和字体材料 |
+| `package-cef-example.py` | 仅按清单打包 89 个 CEF 文件，供 Release 示例素材留存 |
 
 启动器、启动检查、两个托盘脚本和窗口辅助程序安装到 prefix 的 `wecom-compat/scripts/`，DLL 覆盖列表在 `wecom-compat/configs/`。其余配置/清单属于已验证材料快照；注册表文件使用 UTF-16，交给 Wine `reg.exe import`。
+
+输入桥接模块使用 GCC 和 X11 开发头文件编译，不链接或替换 Wine 库。在仓库根目录执行：
+
+```bash
+gcc -std=c11 -shared -fPIC -Wall -Wextra -Werror -O2 \
+  scripts/ime-bridge.c -o /tmp/wecom-ime-bridge.so -ldl
+cp /tmp/wecom-ime-bridge.so scripts/ime-bridge.so
+```
 
 两个 EXE 均为附源码的小工具。重建需要 clang、lld 和 Wine 开发导入库，在仓库根目录执行：
 

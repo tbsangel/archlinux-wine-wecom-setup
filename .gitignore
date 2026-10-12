@@ -1,5 +1,6 @@
-# Installer, vendor DLLs, fonts, Wine prefixes and user data stay local.
+# Local materials and generated Release archives are not stored in Git history.
 /assets/
+/dist/
 /wecom-wine-diagnostics/
 *.log
 *.dmp
@@ -10,7 +11,7 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# The two small, source-included diagnostic helpers are intentional.
+# The two small, source-included Windows helpers are intentional.
 *.exe
 !/scripts/status-font-probe.exe
 !/scripts/titlebar-managed.exe

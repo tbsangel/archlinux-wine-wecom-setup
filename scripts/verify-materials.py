@@ -18,6 +18,8 @@ parser.add_argument('--installer', type=Path, default=material_path(versions['in
 parser.add_argument('--cef-dir', type=Path, default=material_path(versions['cef']['directory']))
 parser.add_argument('--richedit', type=Path, default=material_path(versions['richedit']['path']))
 parser.add_argument('--fonts-dir', type=Path, help='Flat directory with all 31 font files; default: assets/fonts inside this repository')
+parser.add_argument('--only', choices=('installer', 'cef', 'richedit', 'fonts'),
+                    help='Verify one material group; default: verify all groups')
 args = parser.parse_args()
 errors = []
 
@@ -48,22 +50,31 @@ def check_pe(path, expected):
     except (OSError, ValueError, struct.error) as exc:
         errors.append(f'{path}: {exc}')
 
-check(args.installer, versions['installer']['sha256'])
-check(args.richedit, versions['richedit']['sha256'])
-check_pe(args.richedit, 0x14c)
-manifest = json.loads((ROOT / 'materials/cef64-vendor-manifest.json').read_text())
-for name, metadata in manifest['file_group'].items():
-    version, component, relative = name.replace('\\', '/').split('/', 2)
-    if version != versions['cef']['component'] or component != 'cef' or '..' in Path(relative).parts:
-        raise SystemExit(f'Unexpected manifest path: {name}')
-    check(args.cef_dir / relative, metadata['md5'], 'md5')
-for name in ('WXWorkWeb.exe', 'libcef.dll'):
-    check_pe(args.cef_dir / name, 0x8664)
-fonts = json.loads((ROOT / 'materials/fonts.json').read_text())
-for font in fonts:
-    path = args.fonts_dir / font['filename'] if args.fonts_dir else material_path(font['source'])
-    check(path, font['sha256'])
+checked = []
+if args.only in (None, 'installer'):
+    check(args.installer, versions['installer']['sha256'])
+    checked.append('installer SHA256')
+if args.only in (None, 'richedit'):
+    check(args.richedit, versions['richedit']['sha256'])
+    check_pe(args.richedit, 0x14c)
+    checked.append('x86 RichEdit SHA256')
+if args.only in (None, 'cef'):
+    manifest = json.loads((ROOT / 'materials/cef64-vendor-manifest.json').read_text())
+    for name, metadata in manifest['file_group'].items():
+        version, component, relative = name.replace('\\', '/').split('/', 2)
+        if version != versions['cef']['component'] or component != 'cef' or '..' in Path(relative).parts:
+            raise SystemExit(f'Unexpected manifest path: {name}')
+        check(args.cef_dir / relative, metadata['md5'], 'md5')
+    for name in ('WXWorkWeb.exe', 'libcef.dll'):
+        check_pe(args.cef_dir / name, 0x8664)
+    checked.append(f'{len(manifest["file_group"])} CEF files and x64 PE headers')
+if args.only in (None, 'fonts'):
+    fonts = json.loads((ROOT / 'materials/fonts.json').read_text())
+    for font in fonts:
+        path = args.fonts_dir / font['filename'] if args.fonts_dir else material_path(font['source'])
+        check(path, font['sha256'])
+    checked.append(f'{len(fonts)} font SHA256 hashes')
 if errors:
     print('\n'.join(errors))
     raise SystemExit(1)
-print(f'PASS: installer SHA256; x86 RichEdit SHA256; {len(manifest["file_group"])} CEF files and x64 PE headers; {len(fonts)} font SHA256 hashes.')
+print('PASS: ' + '; '.join(checked) + '.')

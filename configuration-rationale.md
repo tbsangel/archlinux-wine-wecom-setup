@@ -38,6 +38,18 @@ RichEdit 的版本与 SHA256 见 [versions.json](materials/versions.json)。只�
 
 提示字体原为 Tahoma，部分中文回退失败，且 FontLink 可能随区域设置变化被重写。[status-font-probe](scripts/status-font-probe.c) 通过 Windows API 设置 StatusFont 的字体名，保留原字号与字重；不用手写 LOGFONT 二进制值。完整重启企业微信后再检查“截图”“查找聊天记录”等提示。
 
+## 内嵌页面与邮件的 fcitx5 提交
+
+邮件标题可以输入中文，正文有候选框却无法提交。诊断确认 fcitx5 的 XIM 已交付文字，但 Wine 把提交交给 WeMail 的外层 Qt 窗口，实际焦点在另一进程的 CEF 子窗口。公共版 Wine 11.19 和 10.14 都复现；关闭预编辑显示也无改善。正文使用 CEF，已有的 RichEdit、字体和 VC 组件不负责这条路径；winetricks 的 `msctf` 安装的是 XP x86 组件，未找到与此故障匹配的现成组件方案。
+
+[ime-bridge.c](scripts/ime-bridge.c) 是针对已验证组合的 Linux x86_64 输入桥接模块。启动器只在企业微信启动链上加载 `ime-bridge.so`，模块只在 `WeMail.exe` 或 `WXWork.exe` 内处理 XIM 已提交文本：焦点必须是 `CefBrowserWindow` 下的 `Chrome_WidgetWin_1`，编辑器与最外层宿主属于不同进程，且输入事件的 X11 窗口必须与该宿主窗口匹配，才向当前编辑器投递 Unicode `WM_CHAR`。其他输入沿用 Wine 原路径。
+
+首次只匹配 WeMail 的 Qt 根窗口，修复了独立邮件正文。随后窗口探针确认，文档正文通过多层 Qt 窗口嵌入企业微信主窗口，审批通过 `WXWorkWebViewHostWindow` 嵌入主窗口或独立业务窗口，两者仍有候选框却无法提交。因此模块扩展到主程序这个输入宿主，使用实际 X11 窗口归属检查，替代只匹配 Qt 根窗口的限制。
+
+模块保留系统 `/usr/bin/wine`，无需修改系统 DLL、企业微信二进制或剪贴板。默认不记录提交过程；`WECOM_IME_DEBUG=1` 只记录数量和窗口句柄，不记录文字。通过 `WECOM_IME_FIX=0` 并完整重启可关闭。2026-10-12，用户确认日常环境的邮件正文、文档正文及审批输入框均恢复中文提交；此前标题和聊天输入也已验证正常。邮件收发、长文本、复杂组合输入及长期稳定性仍未覆盖。
+
+它使用 Wine `win32u.so` 的内部 Unix 接口和 CEF 窗口类别；Wine 或企业微信升级后需要重新验证，不能视为上游 Wine 已修复。适用平台为 Arch x86_64 的新 WoW64 运行方式。模块路径不能含空白或冒号，启动器遇到这种路径会跳过并提示。
+
 ## 启动等待
 
 已观察到的五分钟等待来自 `drive_c/ProgramData/boost_interprocess/01000000/WXWORK-TBS-HELPER-LOCK`：文件长 12 字节，初始化状态为 0，网页组件共享内存初始化等待 **300003 ms**。移走失效锁后，该次主界面约 **4.4 秒**显示，用户确认聊天和文档正常。最初导致锁失效的原因尚未确定。

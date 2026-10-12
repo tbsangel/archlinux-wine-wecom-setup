@@ -7,3 +7,5 @@
 *.txt text eol=lf
 *.reg binary
 *.exe binary
+*.so binary
+*.desktop text eol=lf

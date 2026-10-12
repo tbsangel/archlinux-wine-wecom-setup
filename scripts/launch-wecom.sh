@@ -27,4 +27,15 @@ if [[ "${WECOM_TITLEBAR_FIX:-1}" != 0 ]]; then
   "${wine_env[@]}" WECOM_TRAY_GEOMETRY="$tray_geometry" /usr/bin/wine "$script_dir/titlebar-managed.exe" -watch \
     </dev/null >>"$WECOM_PREFIX/wecom-titlebar.log" 2>&1 &
 fi
+if [[ "${WECOM_IME_FIX:-1}" != 0 ]]; then
+  ime_bridge="$script_dir/ime-bridge.so"
+  if [[ -f "$ime_bridge" ]]; then
+    # LD_PRELOAD cannot represent filenames containing spaces or colons.
+    if [[ "$ime_bridge" == *[[:space:]:]* ]]; then
+      printf '%s\n' 'WeCom IME bridge skipped: helper path contains whitespace or a colon.' >&2
+    else
+      wine_env+=(LD_PRELOAD="$ime_bridge${LD_PRELOAD:+:$LD_PRELOAD}")
+    fi
+  fi
+fi
 exec "${wine_env[@]}" /usr/bin/wine "$app"
