@@ -28,6 +28,8 @@ bash "$WECOM_PREFIX/wecom-compat/scripts/launch-wecom.sh"
 env WECOM_TRAY_FIX=0 bash "$WECOM_PREFIX/wecom-compat/scripts/launch-wecom.sh"
 ```
 
+KDE 的旧应用程序（X11）选择“由系统进行缩放”时，如果 XWayland 屏幕矩形已与 KDE 逻辑坐标一致，托盘助手会跳过该屏幕的重复缩放换算。切换缩放模式后需重新加载助手或重启企业微信，刷新启动时读取的坐标参数。
+
 ## 更新启动辅助文件
 
 先保存工作并退出目标企业微信。以下命令备份原辅助文件，再同步仓库版本，不重装应用、字体或 CEF：

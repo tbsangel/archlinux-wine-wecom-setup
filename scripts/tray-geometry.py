@@ -35,6 +35,13 @@ def correction(xmonitors, outputs):
                   output["size"]["width"], output["size"]["height"])
         target = (monitor["x"] - p["x"], monitor["y"] - p["y"],
                   monitor["width"], monitor["height"])
+        # With compositor scaling XWayland already uses KDE logical pixels.
+        # Applying the physical-size mapping again displaces tray popups.
+        scale = output.get("scale", 1)
+        logical = (source[0], source[1],
+                   round(source[2] / scale), round(source[3] / scale))
+        if target == logical:
+            source = target
         if min(source[2:] + target[2:]) <= 0:
             return None
         mappings.append(source + target)
